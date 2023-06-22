@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/gob"
 	"flag"
 	"fmt"
+	"net"
 	"time"
+
+	"github.com/warrenulrich/passman/pkg/passman"
 )
 
 const (
@@ -59,11 +63,15 @@ Commands:
 )
 
 var (
-	clientConn *ClientConn
+	clientConn net.Conn
 )
 
-func makeRequest(request interface{}) error {
-	return nil
+func writeRequest(request interface{}) error {
+	return gob.NewEncoder(clientConn).Encode(&request)
+}
+
+func readResponse() (interface{}, error) {
+	return nil, nil
 }
 
 func addCommand(args []string) error {
@@ -85,7 +93,7 @@ func addCommand(args []string) error {
 		return fmt.Errorf("invalid number of arguments, need 2, got %d", len(remainingArgs))
 	}
 
-	expiryTime := time.Time{}
+	expiryTime := time.Now()
 	if *expiry != "" {
 		var err error
 		expiryTime, err = time.Parse(time.RFC3339, *expiry)
@@ -94,10 +102,22 @@ func addCommand(args []string) error {
 		}
 	}
 
-	_, err := clientConn.Add(remainingArgs[0], remainingArgs[1], *pwd, *notes, expiryTime)
-	if err != nil {
+	request := passman.AddRequest{
+		Service:  remainingArgs[0],
+		Username: remainingArgs[1],
+		Password: *pwd,
+		Notes:    *notes,
+		Expiry:   expiryTime,
+	}
+
+	_ = request
+	if err := writeRequest(request); err != nil {
 		return err
 	}
+
+	// if resp, err := readResponse(); err != nil {
+	// 	fmt.Printf("Response: %v", resp)
+	// }
 
 	return nil
 }
@@ -142,7 +162,7 @@ func main() {
 	args := remainingArgs[1:]
 
 	var err error
-	clientConn, err = NewClientConn(socketPath)
+	clientConn, err = net.Dial("unix", socketPath)
 	if err != nil {
 		panic(err)
 	}
