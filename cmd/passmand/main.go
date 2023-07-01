@@ -27,7 +27,8 @@ func initializeDatabase(path string) error {
 		return err
 	}
 
-	db, err := sql.Open("sqlite3", path)
+	var err error
+	db, err = sql.Open("sqlite3", path)
 	if err != nil {
 		return err
 	}
@@ -50,9 +51,27 @@ func initializeDatabase(path string) error {
 	return nil
 }
 
-func handleAddRequest(request passman.AddRequest) (*passman.AddResponse, error) {
+func handleAddRequest(request passman.AddRequest) error {
 	fmt.Printf("Received add request: %+v\n", request)
-	return nil, nil
+
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	_, err := db.Exec(
+		"INSERT INTO passwords (service, username, password, notes, expiry) VALUES (?, ?, ?, ?, ?)",
+		request.Service,
+		request.Username,
+		request.Password,
+		request.Notes,
+		request.Expiry,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func handleConnection(conn net.Conn) {
@@ -61,23 +80,17 @@ func handleConnection(conn net.Conn) {
 		panic(err)
 	}
 
-	var response interface{}
 	var err error
 	switch request.(type) {
 	case passman.AddRequest:
-		response, err = handleAddRequest(request.(passman.AddRequest))
+		err = handleAddRequest(request.(passman.AddRequest))
 	default:
 	}
 
 	if err != nil {
 		panic(err)
 	}
-
-	_ = response
-	// if err := gob.NewEncoder(conn).Encode(response); err != nil {
-	// 	panic(err)
-	// }
-
+	
 	if err := conn.Close(); err != nil {
 		panic(err)
 	}

@@ -10,7 +10,4 @@ type AddRequest struct {
 	Expiry   time.Time
 }
 
-type AddResponse struct {
-	Success bool
-	Message string
-}
+type AddResponse BaseResponse

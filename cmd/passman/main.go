@@ -4,7 +4,9 @@ import (
 	"encoding/gob"
 	"flag"
 	"fmt"
+	"math/rand"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/warrenulrich/passman/pkg/passman"
@@ -66,12 +68,52 @@ var (
 	clientConn net.Conn
 )
 
+func generatePassword(length int, symbols, numbers, uppcase bool, exclude []rune) string {
+	const lowercaseLetters = "abcdefghijklmnopqrstuvwxyz"
+	const uppercaseLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	const symbolsSet = "!@#$%^&*()-_=+{}[]|:;<>,.?/"
+	const numbersSet = "0123456789"
+
+	// Start with lowercase letters.
+	var charset string = lowercaseLetters
+
+	// Add other character sets based on the flags.
+	if uppcase {
+		charset += uppercaseLetters
+	}
+	if symbols {
+		charset += symbolsSet
+	}
+	if numbers {
+		charset += numbersSet
+	}
+
+	// Remove excluded characters.
+	for _, ex := range exclude {
+		charset = strings.ReplaceAll(charset, string(ex), "")
+	}
+
+	var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	result := make([]byte, length)
+
+	for i := range result {
+		result[i] = charset[seededRand.Intn(len(charset))]
+	}
+
+	return string(result)
+}
+
 func writeRequest(request interface{}) error {
 	return gob.NewEncoder(clientConn).Encode(&request)
 }
 
 func readResponse() (interface{}, error) {
-	return nil, nil
+	var response passman.AddResponse
+	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
 func addCommand(args []string) error {
@@ -110,15 +152,40 @@ func addCommand(args []string) error {
 		Expiry:   expiryTime,
 	}
 
-	_ = request
 	if err := writeRequest(request); err != nil {
 		return err
 	}
 
-	// if resp, err := readResponse(); err != nil {
-	// 	fmt.Printf("Response: %v", resp)
-	// }
+	// time.Sleep(1 * time.Second)
+	response, err := readResponse()
+	if err != nil {
+		return err
+	}
 
+	fmt.Println(response)
+	return nil
+}
+
+func generateCommand(args []string) error {
+	flags := flag.NewFlagSet("generate", flag.ExitOnError)
+
+	length := flags.Int("l", 10, "")
+	numbers := flags.Bool("n", false, "")
+	symbols := flags.Bool("s", false, "")
+	uppercase := flags.Bool("u", false, "")
+	clip := flags.Bool("c", false, "")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return err
+	}
+
+	pass := generatePassword(*length, *symbols, *numbers, *uppercase, []rune{})
+	if *clip {
+		// TODO: save pass to clipboard
+	}
+
+	fmt.Println(pass)
 	return nil
 }
 
@@ -126,6 +193,8 @@ func runCommand(cmd string, args []string) error {
 	switch cmd {
 	case "add":
 		return addCommand(args)
+	case "generate":
+		return generateCommand(args)
 	}
 
 	return fmt.Errorf("unknown command: %s", cmd)
@@ -162,10 +231,10 @@ func main() {
 	args := remainingArgs[1:]
 
 	var err error
-	clientConn, err = net.Dial("unix", socketPath)
-	if err != nil {
-		panic(err)
-	}
+	// clientConn, err = net.Dial("unix", socketPath)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	if err = runCommand(command, args); err != nil {
 		panic(err)
