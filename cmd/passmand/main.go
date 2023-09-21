@@ -51,7 +51,7 @@ func initializeDatabase(path string) error {
 	return nil
 }
 
-func handleAddRequest(request passman.AddRequest) error {
+func handleAddRequest(conn net.Conn, request passman.AddRequest) error {
 	fmt.Printf("Received add request: %+v\n", request)
 
 	if db == nil {
@@ -71,6 +71,56 @@ func handleAddRequest(request passman.AddRequest) error {
 		return err
 	}
 
+	resp := passman.AddResponse{
+		Success: true,
+	}
+
+	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func handleListRequest(conn net.Conn, request passman.ListRequest) error {
+	fmt.Printf("Received list request: %+v\n", request)
+
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	rows, err := db.Query(
+		"SELECT service, username, password, notes, expiry FROM passwords",
+	)
+
+	if err != nil {
+		return err
+	}
+
+	var entries []passman.Entry
+	for rows.Next() {
+		var entry passman.Entry
+		if err := rows.Scan(
+			&entry.Service,
+			&entry.Username,
+			&entry.Password,
+			&entry.Notes,
+			&entry.Expiry,
+		); err != nil {
+			return err
+		}
+
+		entries = append(entries, entry)
+	}
+
+	resp := passman.ListResponse{
+		Entries: entries,
+	}
+
+	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -83,14 +133,16 @@ func handleConnection(conn net.Conn) {
 	var err error
 	switch request.(type) {
 	case passman.AddRequest:
-		err = handleAddRequest(request.(passman.AddRequest))
+		err = handleAddRequest(conn, request.(passman.AddRequest))
+	case passman.ListRequest:
+		err = handleListRequest(conn, request.(passman.ListRequest))
 	default:
 	}
 
 	if err != nil {
 		panic(err)
 	}
-	
+
 	if err := conn.Close(); err != nil {
 		panic(err)
 	}
@@ -124,8 +176,13 @@ func main() {
 		panic(err)
 	}
 
+	dataDir := os.Getenv("XDG_DATA_HOME")
+	if dataDir == "" {
+		dataDir = filepath.Join(usr.HomeDir, ".local", "share")
+	}
+
 	err = initializeDatabase(
-		filepath.Join(usr.HomeDir, ".passman", "passman.db"),
+		filepath.Join(dataDir, "passman", "passman.db"),
 	)
 
 	if err != nil {

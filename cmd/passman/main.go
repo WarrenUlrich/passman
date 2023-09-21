@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/gob"
+	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -107,33 +108,31 @@ func writeRequest(request interface{}) error {
 	return gob.NewEncoder(clientConn).Encode(&request)
 }
 
-func readResponse() (interface{}, error) {
-	var response passman.AddResponse
-	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
-		return nil, err
-	}
-
-	return response, nil
-}
-
 func addCommand(args []string) error {
-	flags := flag.NewFlagSet("add", flag.ExitOnError)
-	pwd := flags.String("p", "", "Specify the password.")
-	notes := flags.String("n", "", "Add notes to the entry.")
-	expiry := flags.String("e", "", "Set an expiry date for the password.")
+	fmt.Println(args)
 
+	flags := flag.NewFlagSet("add", flag.ContinueOnError)
+	pwd := flags.String("pass", "", "Specify the password.")
+	notes := flags.String("note", "", "Add notes to the entry.")
+	expiry := flags.String("expr", "", "Set an expiry date for the password.")
+
+	// Parse only the flags
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	remainingArgs := flags.Args()
-	if len(remainingArgs) != 2 {
-		for _, arg := range remainingArgs {
-			fmt.Println(arg)
-		}
+	fmt.Println("Flags:", *pwd, *notes, *expiry)
 
-		return fmt.Errorf("invalid number of arguments, need 2, got %d", len(remainingArgs))
+	// Get the remaining non-flag arguments
+	remainingArgs := flags.Args()
+
+	// Now you can check the remainingArgs
+	if len(remainingArgs) < 2 {
+		return errors.New("insufficient non-flag arguments")
 	}
+
+	service := remainingArgs[0]
+	username := remainingArgs[1]
 
 	expiryTime := time.Now()
 	if *expiry != "" {
@@ -145,24 +144,25 @@ func addCommand(args []string) error {
 	}
 
 	request := passman.AddRequest{
-		Service:  remainingArgs[0],
-		Username: remainingArgs[1],
+		Service:  service,
+		Username: username,
 		Password: *pwd,
 		Notes:    *notes,
 		Expiry:   expiryTime,
 	}
 
+	fmt.Println("Request:", request)
+
 	if err := writeRequest(request); err != nil {
 		return err
 	}
 
-	// time.Sleep(1 * time.Second)
-	response, err := readResponse()
-	if err != nil {
+	var response passman.AddResponse
+	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
 		return err
 	}
 
-	fmt.Println(response)
+	fmt.Printf("Response: %+v\n", response)
 	return nil
 }
 
@@ -189,10 +189,38 @@ func generateCommand(args []string) error {
 	return nil
 }
 
+func listCommand(args []string) error {
+	query := ""
+	if len(args) > 0 {
+		query = args[0]
+	}
+
+	request := passman.ListRequest{
+		Query: query,
+	}
+
+	if err := writeRequest(request); err != nil {
+		return err
+	}
+
+	var response passman.ListResponse
+	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
+		return err
+	}
+
+	for _, entry := range response.Entries {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", entry.Service, entry.Username, entry.Password, entry.Notes, entry.Expiry.Format(time.RFC3339))
+	}
+
+	return nil
+}
+
 func runCommand(cmd string, args []string) error {
 	switch cmd {
 	case "add":
 		return addCommand(args)
+	case "list":
+		return listCommand(args)
 	case "generate":
 		return generateCommand(args)
 	}
@@ -231,10 +259,10 @@ func main() {
 	args := remainingArgs[1:]
 
 	var err error
-	// clientConn, err = net.Dial("unix", socketPath)
-	// if err != nil {
-	// 	panic(err)
-	// }
+	clientConn, err = net.Dial("unix", socketPath)
+	if err != nil {
+		panic(err)
+	}
 
 	if err = runCommand(command, args); err != nil {
 		panic(err)

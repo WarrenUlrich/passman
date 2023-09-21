@@ -2,14 +2,10 @@ package passman
 
 import "time"
 
-type AddRequest struct {
+type Entry struct {
 	Service  string
 	Username string
 	Password string
 	Notes    string
 	Expiry   time.Time
-}
-
-type AddResponse struct {
-	Success bool
 }
