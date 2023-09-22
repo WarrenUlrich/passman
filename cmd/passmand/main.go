@@ -39,8 +39,7 @@ func initializeDatabase(path string) error {
 			service TEXT NOT NULL,
 			username TEXT NOT NULL,
 			password TEXT,
-			notes TEXT,
-			expiry TIMESTAMP
+			notes TEXT
 		);
 	`
 
@@ -59,12 +58,11 @@ func handleAddRequest(conn net.Conn, request passman.AddRequest) error {
 	}
 
 	_, err := db.Exec(
-		"INSERT INTO passwords (service, username, password, notes, expiry) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO passwords (service, username, password, notes) VALUES (?, ?, ?, ?)",
 		request.Service,
 		request.Username,
 		request.Password,
 		request.Notes,
-		request.Expiry,
 	)
 
 	if err != nil {
@@ -90,7 +88,7 @@ func handleListRequest(conn net.Conn, request passman.ListRequest) error {
 	}
 
 	rows, err := db.Query(
-		"SELECT service, username, password, notes, expiry FROM passwords",
+		"SELECT service, username, password, notes FROM passwords",
 	)
 
 	if err != nil {
@@ -105,7 +103,6 @@ func handleListRequest(conn net.Conn, request passman.ListRequest) error {
 			&entry.Username,
 			&entry.Password,
 			&entry.Notes,
-			&entry.Expiry,
 		); err != nil {
 			return err
 		}
@@ -115,6 +112,39 @@ func handleListRequest(conn net.Conn, request passman.ListRequest) error {
 
 	resp := passman.ListResponse{
 		Entries: entries,
+	}
+
+	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func handleGetRequest(conn net.Conn, request passman.GetRequest) error {
+	fmt.Println("Received get request:", request)
+
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	var entry passman.Entry
+	if err := db.QueryRow(
+		"SELECT service, username, password, notes FROM passwords WHERE service = ? AND username = ?",
+		request.Service,
+		request.Username,
+	).Scan(
+		&entry.Service,
+		&entry.Username,
+		&entry.Password,
+		&entry.Notes,
+	); err != nil {
+		return err
+	}
+
+	resp := passman.GetResponse{
+		Password: entry.Password,
+		Notes:    entry.Notes,
 	}
 
 	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
@@ -136,6 +166,8 @@ func handleConnection(conn net.Conn) {
 		err = handleAddRequest(conn, request.(passman.AddRequest))
 	case passman.ListRequest:
 		err = handleListRequest(conn, request.(passman.ListRequest))
+	case passman.GetRequest:
+		err = handleGetRequest(conn, request.(passman.GetRequest))
 	default:
 	}
 

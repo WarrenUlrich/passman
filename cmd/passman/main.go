@@ -24,7 +24,6 @@ Commands:
     add <service> <username> Add a new entry to the vault.
         -p, --password       Specify the password.
         -n, --notes          Add notes to the entry.
-        -e, --expiry         Set an expiry date for the password.
 
     update <service> <username> Update an existing entry.
         Options are the same as for the 'add' command.
@@ -60,7 +59,7 @@ Commands:
 
     search <query>           Search the vault for the given query.`
 
-	versionMessage = "passman version 1.0.0"
+	versionMessage = "passman version 0.0.1"
 
 	socketPath = "/tmp/passmand.sock"
 )
@@ -114,14 +113,13 @@ func addCommand(args []string) error {
 	flags := flag.NewFlagSet("add", flag.ContinueOnError)
 	pwd := flags.String("pass", "", "Specify the password.")
 	notes := flags.String("note", "", "Add notes to the entry.")
-	expiry := flags.String("expr", "", "Set an expiry date for the password.")
 
 	// Parse only the flags
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	fmt.Println("Flags:", *pwd, *notes, *expiry)
+	fmt.Println("Flags:", *pwd, *notes)
 
 	// Get the remaining non-flag arguments
 	remainingArgs := flags.Args()
@@ -134,21 +132,11 @@ func addCommand(args []string) error {
 	service := remainingArgs[0]
 	username := remainingArgs[1]
 
-	expiryTime := time.Now()
-	if *expiry != "" {
-		var err error
-		expiryTime, err = time.Parse(time.RFC3339, *expiry)
-		if err != nil {
-			return err
-		}
-	}
-
 	request := passman.AddRequest{
 		Service:  service,
 		Username: username,
 		Password: *pwd,
 		Notes:    *notes,
-		Expiry:   expiryTime,
 	}
 
 	fmt.Println("Request:", request)
@@ -209,7 +197,50 @@ func listCommand(args []string) error {
 	}
 
 	for _, entry := range response.Entries {
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\n", entry.Service, entry.Username, entry.Password, entry.Notes, entry.Expiry.Format(time.RFC3339))
+		fmt.Printf("%s\t%s\t%s\t%s\n", entry.Service, entry.Username, entry.Password, entry.Notes)
+	}
+
+	return nil
+}
+
+func getCommand(args []string) error {
+	flags := flag.NewFlagSet("get", flag.ExitOnError)
+
+	clip := flags.Bool("c", false, "")
+	show := flags.Bool("s", false, "")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return err
+	}
+
+	if len(flags.Args()) < 2 {
+		return errors.New("insufficient non-flag arguments")
+	}
+
+	service := flags.Args()[0]
+	username := flags.Args()[1]
+
+	request := passman.GetRequest{
+		Service:  service,
+		Username: username,
+	}
+
+	if err := writeRequest(request); err != nil {
+		return err
+	}
+
+	var response passman.GetResponse
+	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
+		return err
+	}
+
+	if *clip {
+		// TODO: save pass to clipboard
+	}
+
+	if *show {
+		fmt.Println("Pass:", response.Password)
 	}
 
 	return nil
@@ -223,6 +254,8 @@ func runCommand(cmd string, args []string) error {
 		return listCommand(args)
 	case "generate":
 		return generateCommand(args)
+	case "get":
+		return getCommand(args)
 	}
 
 	return fmt.Errorf("unknown command: %s", cmd)
