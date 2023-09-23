@@ -1,13 +1,13 @@
 package passman
 
-type AddRequest struct {
+type UpdateRequest struct {
 	Service  string
 	Username string
 	Password string
 	Notes    string
 }
 
-type AddResponse struct {
+type UpdateResponse struct {
 	Success bool
 	Error   string
 }

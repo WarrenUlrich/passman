@@ -39,7 +39,8 @@ func initializeDatabase(path string) error {
 			service TEXT NOT NULL,
 			username TEXT NOT NULL,
 			password TEXT,
-			notes TEXT
+			notes TEXT,
+			UNIQUE(service, username)
 		);
 	`
 
@@ -50,23 +51,30 @@ func initializeDatabase(path string) error {
 	return nil
 }
 
-func handleAddRequest(conn net.Conn, request passman.AddRequest) error {
-	fmt.Printf("Received add request: %+v\n", request)
-
-	if db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-
+func handleAddRequest(conn net.Conn, req passman.AddRequest) error {
 	_, err := db.Exec(
 		"INSERT INTO passwords (service, username, password, notes) VALUES (?, ?, ?, ?)",
-		request.Service,
-		request.Username,
-		request.Password,
-		request.Notes,
+		req.Service,
+		req.Username,
+		req.Password,
+		req.Notes,
 	)
 
 	if err != nil {
-		return err
+		if err.Error() == "UNIQUE constraint failed: passwords.service, passwords.username" {
+			fmt.Println("error:", err.Error())
+
+			resp := passman.AddResponse{
+				Success: false,
+				Error:   "Entry already exists",
+			}
+
+			if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 
 	resp := passman.AddResponse{
@@ -80,13 +88,7 @@ func handleAddRequest(conn net.Conn, request passman.AddRequest) error {
 	return nil
 }
 
-func handleListRequest(conn net.Conn, request passman.ListRequest) error {
-	fmt.Printf("Received list request: %+v\n", request)
-
-	if db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-
+func handleListRequest(conn net.Conn, req passman.ListRequest) error {
 	rows, err := db.Query(
 		"SELECT service, username, password, notes FROM passwords",
 	)
@@ -121,18 +123,12 @@ func handleListRequest(conn net.Conn, request passman.ListRequest) error {
 	return nil
 }
 
-func handleGetRequest(conn net.Conn, request passman.GetRequest) error {
-	fmt.Println("Received get request:", request)
-
-	if db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-
+func handleGetRequest(conn net.Conn, req passman.GetRequest) error {
 	var entry passman.Entry
 	if err := db.QueryRow(
 		"SELECT service, username, password, notes FROM passwords WHERE service = ? AND username = ?",
-		request.Service,
-		request.Username,
+		req.Service,
+		req.Username,
 	).Scan(
 		&entry.Service,
 		&entry.Username,
@@ -154,20 +150,50 @@ func handleGetRequest(conn net.Conn, request passman.GetRequest) error {
 	return nil
 }
 
+func handleUpdateRequest(conn net.Conn, req passman.UpdateRequest) error {
+	_, err := db.Exec(
+		"UPDATE passwords SET password = ?, notes = ? WHERE service = ? AND username = ?",
+		req.Password,
+		req.Notes,
+		req.Service,
+		req.Username,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	resp := passman.UpdateResponse{
+		Success: true,
+	}
+
+	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func handleConnection(conn net.Conn) {
-	var request interface{}
-	if err := gob.NewDecoder(conn).Decode(&request); err != nil {
+	var req interface{}
+	if err := gob.NewDecoder(conn).Decode(&req); err != nil {
+		if err.Error() == "EOF" {
+			return
+		}
+
 		panic(err)
 	}
 
 	var err error
-	switch request.(type) {
+	switch r := req.(type) {
 	case passman.AddRequest:
-		err = handleAddRequest(conn, request.(passman.AddRequest))
+		err = handleAddRequest(conn, r)
 	case passman.ListRequest:
-		err = handleListRequest(conn, request.(passman.ListRequest))
+		err = handleListRequest(conn, r)
 	case passman.GetRequest:
-		err = handleGetRequest(conn, request.(passman.GetRequest))
+		err = handleGetRequest(conn, r)
+	case passman.UpdateRequest:
+		err = handleUpdateRequest(conn, r)
 	default:
 	}
 

@@ -51,22 +51,33 @@ Commands:
 
     change-master            Change the master password of the vault.
 
-    config                   Configure settings like auto-lock time, default password length, etc.
+    config                   Configure settings.
 
-    lock                     Manually lock the password vault.
+	lock                     Manually lock the password vault.
 
-    health                   Check the health of passwords in the vault.
-
-    search <query>           Search the vault for the given query.`
+	unlock					 Manually unlock the password vault.`
 
 	versionMessage = "passman version 0.0.1"
 
 	socketPath = "/tmp/passmand.sock"
 )
 
-var (
-	clientConn net.Conn
-)
+func getClient() (net.Conn, error) {
+	return net.Dial("unix", socketPath)
+}
+
+func writeRequest(conn net.Conn, req interface{}) error {
+	return gob.NewEncoder(conn).Encode(&req)
+}
+
+func readResponse[T any](conn net.Conn) (*T, error) {
+	var resp T
+	if err := gob.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
 
 func generatePassword(length int, symbols, numbers, uppcase bool, exclude []rune) string {
 	const lowercaseLetters = "abcdefghijklmnopqrstuvwxyz"
@@ -103,28 +114,17 @@ func generatePassword(length int, symbols, numbers, uppcase bool, exclude []rune
 	return string(result)
 }
 
-func writeRequest(request interface{}) error {
-	return gob.NewEncoder(clientConn).Encode(&request)
-}
-
 func addCommand(args []string) error {
-	fmt.Println(args)
-
 	flags := flag.NewFlagSet("add", flag.ContinueOnError)
-	pwd := flags.String("pass", "", "Specify the password.")
-	notes := flags.String("note", "", "Add notes to the entry.")
+	pwd := flags.String("p", "", "Specify the password.")
+	notes := flags.String("n", "", "Add notes to the entry.")
 
-	// Parse only the flags
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	fmt.Println("Flags:", *pwd, *notes)
-
-	// Get the remaining non-flag arguments
 	remainingArgs := flags.Args()
 
-	// Now you can check the remainingArgs
 	if len(remainingArgs) < 2 {
 		return errors.New("insufficient non-flag arguments")
 	}
@@ -141,12 +141,17 @@ func addCommand(args []string) error {
 
 	fmt.Println("Request:", request)
 
-	if err := writeRequest(request); err != nil {
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+
+	if err = gob.NewEncoder(client).Encode(request); err != nil {
 		return err
 	}
 
 	var response passman.AddResponse
-	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
+	if err = gob.NewDecoder(client).Decode(&response); err != nil {
 		return err
 	}
 
@@ -187,16 +192,26 @@ func listCommand(args []string) error {
 		Query: query,
 	}
 
-	if err := writeRequest(request); err != nil {
+	client, err := getClient()
+	if err != nil {
 		return err
 	}
 
-	var response passman.ListResponse
-	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
+	// var i interface{} = request
+	// if err = gob.NewEncoder(client).Encode(&i); err != nil {
+	// 	return err
+	// }
+
+	if err = writeRequest(client, request); err != nil {
 		return err
 	}
 
-	for _, entry := range response.Entries {
+	resp, err := readResponse[passman.ListResponse](client)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range resp.Entries {
 		fmt.Printf("%s\t%s\t%s\t%s\n", entry.Service, entry.Username, entry.Password, entry.Notes)
 	}
 
@@ -226,12 +241,17 @@ func getCommand(args []string) error {
 		Username: username,
 	}
 
-	if err := writeRequest(request); err != nil {
+	client, err := getClient()
+	if err != nil {
 		return err
 	}
 
-	var response passman.GetResponse
-	if err := gob.NewDecoder(clientConn).Decode(&response); err != nil {
+	if err = writeRequest(client, request); err != nil {
+		return err
+	}
+
+	resp, err := readResponse[passman.GetResponse](client)
+	if err != nil {
 		return err
 	}
 
@@ -240,9 +260,52 @@ func getCommand(args []string) error {
 	}
 
 	if *show {
-		fmt.Println("Pass:", response.Password)
+		fmt.Println("Pass:", resp.Password)
 	}
 
+	return nil
+}
+
+func updateCommand(args []string) error {
+	flags := flag.NewFlagSet("update", flag.ContinueOnError)
+	pwd := flags.String("p", "", "Specify the password.")
+	notes := flags.String("n", "", "Add notes to the entry.")
+
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	remainingArgs := flags.Args()
+
+	if len(remainingArgs) < 2 {
+		return errors.New("insufficient non-flag arguments")
+	}
+
+	service := remainingArgs[0]
+	username := remainingArgs[1]
+
+	request := passman.UpdateRequest{
+		Service:  service,
+		Username: username,
+		Password: *pwd,
+		Notes:    *notes,
+	}
+
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+
+	if err = writeRequest(client, request); err != nil {
+		return err
+	}
+
+	resp, err := readResponse[passman.UpdateResponse](client)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Response: %+v\n", resp)
 	return nil
 }
 
@@ -256,6 +319,8 @@ func runCommand(cmd string, args []string) error {
 		return generateCommand(args)
 	case "get":
 		return getCommand(args)
+	case "update":
+		return updateCommand(args)
 	}
 
 	return fmt.Errorf("unknown command: %s", cmd)
@@ -291,13 +356,13 @@ func main() {
 	command := remainingArgs[0]
 	args := remainingArgs[1:]
 
-	var err error
-	clientConn, err = net.Dial("unix", socketPath)
-	if err != nil {
-		panic(err)
-	}
+	// var err error
+	// clientConn, err = net.Dial("unix", socketPath)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	if err = runCommand(command, args); err != nil {
+	if err := runCommand(command, args); err != nil {
 		panic(err)
 	}
 }

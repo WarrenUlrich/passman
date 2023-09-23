@@ -11,4 +11,10 @@ func init() {
 
 	gob.Register(GetRequest{})
 	gob.Register(GetResponse{})
+
+	gob.Register(UpdateRequest{})
+	gob.Register(UpdateResponse{})
+
+	gob.Register(DeleteRequest{})
+	gob.Register(DeleteResponse{})
 }

@@ -8,5 +8,4 @@ type GetRequest struct {
 type GetResponse struct {
 	Password string
 	Notes    string
-	Expiry   string
 }

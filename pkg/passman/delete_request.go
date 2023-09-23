@@ -1,13 +1,11 @@
 package passman
 
-type AddRequest struct {
+type DeleteRequest struct {
 	Service  string
 	Username string
-	Password string
-	Notes    string
 }
 
-type AddResponse struct {
+type DeleteResponse struct {
 	Success bool
 	Error   string
 }
