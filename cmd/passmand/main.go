@@ -174,6 +174,39 @@ func handleUpdateRequest(conn net.Conn, req passman.UpdateRequest) error {
 	return nil
 }
 
+func handleDeleteRequest(conn net.Conn, req passman.DeleteRequest) error {
+	_, err := db.Exec(
+		"DELETE FROM passwords WHERE service = ? AND username = ?",
+		req.Service,
+		req.Username,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	resp := passman.DeleteResponse{
+		Success: true,
+	}
+
+	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func handleLockRequest(conn net.Conn, req passman.LockRequest) error {
+	// TODO: Implement encrypting the database with the master password
+
+	var resp passman.LockResponse
+	if err := gob.NewEncoder(conn).Encode(resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func handleConnection(conn net.Conn) {
 	var req interface{}
 	if err := gob.NewDecoder(conn).Decode(&req); err != nil {
@@ -194,6 +227,10 @@ func handleConnection(conn net.Conn) {
 		err = handleGetRequest(conn, r)
 	case passman.UpdateRequest:
 		err = handleUpdateRequest(conn, r)
+	case passman.DeleteRequest:
+		err = handleDeleteRequest(conn, r)
+	case passman.LockRequest:
+		err = handleLockRequest(conn, r)
 	default:
 	}
 

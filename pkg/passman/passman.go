@@ -17,4 +17,7 @@ func init() {
 
 	gob.Register(DeleteRequest{})
 	gob.Register(DeleteResponse{})
+
+	gob.Register(LockRequest{})
+	gob.Register(LockResponse{})
 }

@@ -8,7 +8,10 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"syscall"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/warrenulrich/passman/pkg/passman"
 )
@@ -309,6 +312,59 @@ func updateCommand(args []string) error {
 	return nil
 }
 
+func deleteCommand(args []string) error {
+	req := passman.DeleteRequest{
+		Service:  args[0],
+		Username: args[1],
+	}
+
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+
+	if err = writeRequest(client, req); err != nil {
+		return err
+	}
+
+	resp, err := readResponse[passman.DeleteResponse](client)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Response: %+v\n", resp)
+	return nil
+}
+
+func lockCommand(args []string) error {
+	fmt.Println("Enter master password:")
+	password, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return err
+	}
+
+	req := passman.LockRequest{
+		Password: string(password),
+	}
+
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+
+	if err = writeRequest(client, req); err != nil {
+		return err
+	}
+
+	resp, err := readResponse[passman.LockResponse](client)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Response: %+v\n", resp)
+	return nil
+}
+
 func runCommand(cmd string, args []string) error {
 	switch cmd {
 	case "add":
@@ -321,6 +377,10 @@ func runCommand(cmd string, args []string) error {
 		return getCommand(args)
 	case "update":
 		return updateCommand(args)
+	case "delete":
+		return deleteCommand(args)
+	case "lock":
+		return lockCommand(args)
 	}
 
 	return fmt.Errorf("unknown command: %s", cmd)
